@@ -1,0 +1,8 @@
+openai-whisper
+nltk==3.8.1
+pyaudio==0.2.13
+scikit_learn==1.2.2
+sentence_transformers==2.2.2
+transformers==4.29.2
+whisper==1.1.10
+
