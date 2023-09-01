@@ -9,6 +9,10 @@ import whisper
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin
+# from flask_socketio import SocketIO
+# from threading import Lock
+
+from datetime import datetime
 
 Tmodel = whisper.load_model("base.en")
 
@@ -30,13 +34,17 @@ default_app = initialize_app(cred_obj, {
 
 app = Flask(__name__)
 
+# sio = SocketIO(app)
+# thread = None
+# thread_lock = Lock()
+
 cors_origins = []
 CORS(app, resources={r"/*": {"origins": cors_origins}})
 
     
 @app.route("/proccess", methods=["GET"])
 @cross_origin()
-def rasa_speak():
+def proc():
     """proccess audio file"""
 
     ref = db.reference("/alldata/lecture1/")
@@ -105,7 +113,70 @@ def rasa_speak():
         # print("")
         # pprint(data)
     print("success")
-    return jsonify("succcess")      
+    return jsonify("succcess")
+
+@app.route("/dashboard", methods=["GET"])
+@cross_origin()
+def dash():
+    """get data for dash board"""
+
+    ref = db.reference('/alldata/lecture1')
+    passages=ref.get()
+    ref2 = db.reference('/usersLive/ST2')
+    attention=ref2.get()
+
+    passages_for_text={}
+    with open('lecture1.txt', 'rt') as file:  # Open the text file in read-text mode
+        for line in file.readlines():
+            textline=line.split("|")[1]
+            time=line.split("|")[0]
+            textlineEmbedding=model.encode([textline.strip()])[0]
+            passagewiselist=[]            
+            for passage in passages.values():
+                full_passage=passage['Passage']
+                full_passageEmbedding=model.encode([full_passage])[0]
+                cosine_sim=cosine_similarity([full_passageEmbedding], [textlineEmbedding])
+                passagewiselist.append(cosine_sim)
+
+            pindex=passagewiselist.index(max(passagewiselist))
+            passages_for_text[time]=pindex+1
+
+    date_format = '%Y-%m-%d %H:%M:%S.%f'
+
+    grouped_dict = {}
+    for key, value in passages_for_text.items():
+        if value not in grouped_dict:
+            ak=key.split("/")[1]
+            date_obj = datetime.strptime(ak, date_format)
+            grouped_dict[value] = [date_obj.replace(microsecond=0)]
+        else:
+            ak=key.split("/")[1]
+            date_obj = datetime.strptime(ak, date_format)
+            grouped_dict[value].append(date_obj.replace(microsecond=0))
+
+    passageViseDict={}
+    for key, value in grouped_dict.items():
+        print("passage:"+str(key))
+        youngust = min(value)
+        oldest= max(value)
+        print(youngust,oldest)
+        stViseDict={}
+        for keyv, value in attention.items():
+            stList=[]
+            for key2, value2 in value.items():
+                dt = datetime.strptime(value2['time'], "%a, %d %b %Y %H:%M:%S %Z")
+                if youngust < dt < oldest:
+                    #print(youngust,dt,oldest)
+                    stList.append(value2['data'])
+            if len(stList) > 0:
+                presntage=(sum(stList)/len(stList))*100      
+                stViseDict[keyv]=presntage
+            else:
+                stViseDict[keyv]=0
+            
+        passageViseDict[key]=stViseDict
+
+    return jsonify(passageViseDict)          
     
 if __name__ == '__main__':
     app.run(host="0.0.0.0", debug=True, port=8000)     
