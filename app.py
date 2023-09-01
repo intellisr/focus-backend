@@ -41,6 +41,7 @@ app = Flask(__name__)
 cors_origins = []
 CORS(app, resources={r"/*": {"origins": cors_origins}})
 
+fileName="lecture12.txt"
     
 @app.route("/proccess", methods=["GET"])
 @cross_origin()
@@ -48,9 +49,12 @@ def proc():
     """proccess audio file"""
 
     ref = db.reference("/alldata/lecture1/")
+    refStatus = db.reference("/status")
+    refStatus.set(10)
 
     trans = Tmodel.transcribe('audio.wav')
     document= trans["text"]
+    refStatus.set(20)
 
     # document="""As you have probably noticed, AI is currently a “hot topic”: media coverage and public discussion about AI is almost impossible to avoid. However, you may also have noticed that AI means different things to different people. For some, AI is about artificial life-forms that can surpass human intelligence, and for others, almost any data processing technology can be called AI.To set the scene, so to speak, we’ll discuss what AI is, how it can be defined, and what other fields or technologies are closely related. Before we do so, however, we’ll highlight three applications of AI that illustrate different aspects of AI. We’ll return to each of them throughout the course to deepen our understanding.
     # Self-driving cars require a combination of AI techniques of many kinds: search and planning to find the most convenient route from A to B, computer vision to identify obstacles, and decision making under uncertainty to cope with the complex and dynamic environment. Each of these must work with almost flawless precision in order to avoid accidents.
@@ -81,6 +85,7 @@ def proc():
 
     # Make sure to add the final passage to the list
     passages.append(passage)
+    refStatus.set(40)
 
     max_input_length=2000
 
@@ -97,36 +102,36 @@ def proc():
         predicted_title = nltk.sent_tokenize(decoded_output.strip())[0]
 
         passageWithTitles.update({predicted_title:x})
+        refStatus.set(60)
         data=generateMCQ(x)
+        refStatus.set(80)
         ref = db.reference("/alldata/lecture1/passage-"+str(num)+"/")
         ref.set({
             "Name":predicted_title,
             "Passage":x,
             "QNA":data
         })
+        refStatus.set(100)
 
-
-        # print("============================================")
-        # print("Title : ",predicted_title)
-        # print("")
-        # print("Passage : ",x)
-        # print("")
-        # pprint(data)
-    print("success")
-    return jsonify("succcess")
+        print("success")
+        refStatus.set(0)
+    return jsonify({"status":True})
 
 @app.route("/dashboard", methods=["GET"])
 @cross_origin()
 def dash():
     """get data for dash board"""
 
+    refStatus = db.reference("/dashstatus")
+    refStatus.set(10)
+
     ref = db.reference('/alldata/lecture1')
     passages=ref.get()
-    ref2 = db.reference('/usersLive/ST2')
+    ref2 = db.reference('/usersLive/lecture1')
     attention=ref2.get()
 
     passages_for_text={}
-    with open('lecture1.txt', 'rt') as file:  # Open the text file in read-text mode
+    with open(fileName, 'rt') as file:  # Open the text file in read-text mode
         for line in file.readlines():
             textline=line.split("|")[1]
             time=line.split("|")[0]
@@ -142,6 +147,7 @@ def dash():
             passages_for_text[time]=pindex+1
 
     date_format = '%Y-%m-%d %H:%M:%S.%f'
+    refStatus.set(30)
 
     grouped_dict = {}
     for key, value in passages_for_text.items():
@@ -153,6 +159,8 @@ def dash():
             ak=key.split("/")[1]
             date_obj = datetime.strptime(ak, date_format)
             grouped_dict[value].append(date_obj.replace(microsecond=0))
+
+    refStatus.set(60)        
 
     passageViseDict={}
     for key, value in grouped_dict.items():
@@ -176,6 +184,8 @@ def dash():
             
         passageViseDict[key]=stViseDict
 
+    refStatus.set(100)    
+    refStatus.set(0) 
     return jsonify(passageViseDict)          
     
 if __name__ == '__main__':
