@@ -9,10 +9,16 @@ import whisper
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin
-# from flask_socketio import SocketIO
-# from threading import Lock
+import threading
 
 from datetime import datetime
+
+import pyaudio
+import wave
+import time
+from datetime import datetime
+import whisper
+import os
 
 Tmodel = whisper.load_model("base.en")
 
@@ -34,88 +40,198 @@ default_app = initialize_app(cred_obj, {
 
 app = Flask(__name__)
 
-# sio = SocketIO(app)
-# thread = None
-# thread_lock = Lock()
+# Global flag to control function execution
+running_flag = False
+
 
 cors_origins = []
 CORS(app, resources={r"/*": {"origins": cors_origins}})
 
-fileName="lecture12.txt"
+fileName="lecture1.txt"
+lecture_action=False
+clip_time=30
+
+def voice_to_wav():
+    global running_flag
+    # Create a PyAudio object
+    p = pyaudio.PyAudio()
+
+    # Open a stream to the audio input device
+    stream = p.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, frames_per_buffer=1024)
+
+    # Create an MP3 file object to save the audio
+    now = datetime.now()
+    wf = wave.open("audio/audio-"+str(now)+".wav", "wb")
+    wf.setnchannels(1)
+    wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
+    wf.setframerate(44100)
+
+    wf2 = wave.open("audio-main.wav", "wb")
+    wf2.setnchannels(1)
+    wf2.setsampwidth(p.get_sample_size(pyaudio.paInt16))
+    wf2.setframerate(44100)
+    
+
+    # Start recording audio
+    start_time=time.time()
+    while running_flag:
+        # Get the audio data from the stream
+        data = stream.read(1024)
+
+        # Write the audio data to the wave file
+        wf.writeframes(data)
+        wf2.writeframes(data)
+
+        # Check if 1 minutes have passed
+        time_elapsed = time.time() - start_time
+        if time_elapsed >= clip_time:
+            # Start recording audio
+            start_time = time.time()
+            now = datetime.now()
+
+            # Create a new wave file object
+            wf = wave.open("audio/audio-"+str(now)+".wav", "wb")
+            wf.setnchannels(1)
+            wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
+            wf.setframerate(44100)
+
+            if lecture_action:
+                # Stop recording audio
+                stream.stop_stream()
+                stream.close()
+                break
+
+def wav_to_txt():
+    global running_flag
+    while running_flag:
+        file_names = os.listdir("audio")
+        if len(file_names) > 1:
+            full_path = ["audio/{0}".format(x) for x in file_names]  
+            oldest_file = min(full_path, key=os.path.getctime)    
+            subPro(oldest_file)
+        if lecture_action:
+            break
+
+def subPro(name):
+    result = Tmodel.transcribe(name)
+    time_str=name.replace("audio-","").replace(".wav","")
+    txt=result["text"]
+    with open(fileName, 'a+') as f:
+        f.write(time_str+"|"+txt)
+        f.write('\n')
+        f.close()
+    os.remove(name)
+
+function_thread = threading.Thread(target=voice_to_wav)
+function_thread2 = threading.Thread(target=wav_to_txt)
+
+@app.route('/start', methods=['GET'])
+@cross_origin()
+def start_function():
+    global running_flag, function_thread,function_thread2
+    if not running_flag:
+        os.remove('audio-main.wav')
+        file_names = os.listdir("audio")
+        for name in file_names:
+            os.remove(name)
+        f = open(fileName, 'r+')
+        f.truncate(0)
+        running_flag = True
+        function_thread.start()
+        function_thread2.start()
+        return jsonify(message="Function started.")
+    else:
+        return jsonify(message="Function is already running.")
+
+@app.route('/stop', methods=['GET'])
+@cross_origin()
+def stop_function():
+    global running_flag, function_thread,function_thread2
+    if running_flag:
+        running_flag = False
+        function_thread.join()  # Wait for the function thread to finish
+        return jsonify(message="Function stopped.")
+    else:
+        return jsonify(message="Function is not running.")
     
 @app.route("/proccess", methods=["GET"])
 @cross_origin()
 def proc():
     """proccess audio file"""
 
-    ref = db.reference("/alldata/lecture1/")
-    refStatus = db.reference("/status")
-    refStatus.set(10)
+    with open(fileName, 'rt') as file:
+        lines=file.readlines()
+        refStatus.set(10)
+    if len(lines) > 2:    
 
-    trans = Tmodel.transcribe('audio.wav')
-    document= trans["text"]
-    refStatus.set(20)
+        ref = db.reference("/alldata/lecture1/")
+        refStatus = db.reference("/status")
 
-    # document="""As you have probably noticed, AI is currently a “hot topic”: media coverage and public discussion about AI is almost impossible to avoid. However, you may also have noticed that AI means different things to different people. For some, AI is about artificial life-forms that can surpass human intelligence, and for others, almost any data processing technology can be called AI.To set the scene, so to speak, we’ll discuss what AI is, how it can be defined, and what other fields or technologies are closely related. Before we do so, however, we’ll highlight three applications of AI that illustrate different aspects of AI. We’ll return to each of them throughout the course to deepen our understanding.
-    # Self-driving cars require a combination of AI techniques of many kinds: search and planning to find the most convenient route from A to B, computer vision to identify obstacles, and decision making under uncertainty to cope with the complex and dynamic environment. Each of these must work with almost flawless precision in order to avoid accidents.
-    # The same technologies are also used in other autonomous systems such as delivery robots, flying drones, and autonomous ships.
-    # Implications: road safety should eventually improve as the reliability of the systems surpasses human level. The efficiency of logistics chains when moving goods should improve. Humans move into a supervisory role, keeping an eye on what’s going on while machines take care of the driving. Since transportation is such a crucial element in our daily life, it is likely that there are also some implications that we haven’t even thought about yet.
-    # A lot of the information that we encounter in the course of a typical day is personalized. Examples include Facebook, Twitter, Instagram, and other social media content; online advertisements; music recommendations on Spotify; movie recommendations on Netflix, HBO, and other streaming services. Many online publishers such as newspapers’ and broadcasting companies’ websites as well as search engines such as Google also personalize the content they offer.
-    # While the frontpage of the printed version of the New York Times or China Daily is the same for all readers, the frontpage of the online version is different for each user. The algorithms that determine the content that you see are based on AI.Implications: while many companies don’t want to reveal the details of their algorithms, being aware of the basic principles helps you understand the potential implications: these involve so called filter bubbles, echo-chambers, troll factories, fake news, and new forms of propaganda."""     
+        trans = Tmodel.transcribe('audio-main.wav')
+        document= trans["text"]
+        refStatus.set(20)
 
-    # separate the text into sentences
-    sentences = tokenizer.tokenize(document)
+        # separate the text into sentences
+        sentences = tokenizer.tokenize(document)
 
-    # create initial embeddings for comparison
-    prev_sentence_embedding = model.encode([sentences[0]])[0]
-    passages = []
-    passage = sentences[0]
+        # create initial embeddings for comparison
+        prev_sentence_embedding = model.encode([sentences[0]])[0]
+        passages = []
+        passage = sentences[0]
 
-    for sentence in sentences[1:]:
-        current_sentence_embedding = model.encode([sentence])[0]
-        if cosine_similarity([prev_sentence_embedding], [current_sentence_embedding]) < 0.2:
-            # append the passage to passages and create a new passage
-            passages.append(passage)
-            passage = sentence
-        else:
-            # continue adding sentences to the current passage
-            passage = passage + " " + sentence
-        # update previous sentence embedding
-        prev_sentence_embedding = current_sentence_embedding
+        for sentence in sentences[1:]:
+            current_sentence_embedding = model.encode([sentence])[0]
+            if cosine_similarity([prev_sentence_embedding], [current_sentence_embedding]) < 0.2:
+                # append the passage to passages and create a new passage
+                passages.append(passage)
+                passage = sentence
+            else:
+                # continue adding sentences to the current passage
+                passage = passage + " " + sentence
+            # update previous sentence embedding
+            prev_sentence_embedding = current_sentence_embedding
 
-    # Make sure to add the final passage to the list
-    passages.append(passage)
-    refStatus.set(40)
+        # Make sure to add the final passage to the list
+        passages.append(passage)
+        refStatus.set(40)
 
-    max_input_length=2000
+        max_input_length=2000
 
-    passageWithTitles={}
-    num=0
-    for x in passages:
-        num=num+1
+        passageWithTitles={}
+        num=0
+        for x in passages:
+            num=num+1
 
-        inputs = ["summarize: " + x]
+            inputs = ["summarize: " + x]
 
-        inputs = tokenizerTitle(inputs, max_length=max_input_length, truncation=True, return_tensors="pt")
-        output = modelTitle.generate(**inputs, num_beams=8, do_sample=True, min_length=10, max_length=30)
-        decoded_output = tokenizerTitle.batch_decode(output, skip_special_tokens=True)[0]
-        predicted_title = nltk.sent_tokenize(decoded_output.strip())[0]
+            inputs = tokenizerTitle(inputs, max_length=max_input_length, truncation=True, return_tensors="pt")
+            output = modelTitle.generate(**inputs, num_beams=8, do_sample=True, min_length=10, max_length=30)
+            decoded_output = tokenizerTitle.batch_decode(output, skip_special_tokens=True)[0]
+            predicted_title = nltk.sent_tokenize(decoded_output.strip())[0]
 
-        passageWithTitles.update({predicted_title:x})
-        refStatus.set(60)
-        data=generateMCQ(x)
-        refStatus.set(80)
-        ref = db.reference("/alldata/lecture1/passage-"+str(num)+"/")
-        ref.set({
-            "Name":predicted_title,
-            "Passage":x,
-            "QNA":data
-        })
-        refStatus.set(100)
+            passageWithTitles.update({predicted_title:x})
+            refStatus.set(60)
+            data=generateMCQ(x)
+            refStatus.set(80)
+            ref = db.reference("/alldata/lecture1/passage-"+str(num)+"/")
+            ref.set({
+                "Name":predicted_title,
+                "Passage":x,
+                "QNA":data
+            })
+            refStatus.set(100)
 
-        print("success")
-        refStatus.set(0)
-    return jsonify({"status":True})
+            print("SUCCESS")
+            refStatus.set(0)
+
+            st=True
+    else:
+            refStatus.set(100)
+            st=False
+            print("FAILED")
+            refStatus.set(0)
+
+    return jsonify({"status":st})
 
 @app.route("/dashboard", methods=["GET"])
 @cross_origin()

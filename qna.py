@@ -8,7 +8,7 @@
 
 
 import nltk
-nltk.download('stopwords')
+# nltk.download('stopwords')
 from Questgen import main
 
 def generateMCQ(text):
