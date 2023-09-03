@@ -11,7 +11,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin
 import threading
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pyaudio
 import wave
@@ -19,6 +19,8 @@ import time
 from datetime import datetime
 import whisper
 import os
+
+import pytz
 
 Tmodel = whisper.load_model("base.en")
 
@@ -61,7 +63,9 @@ def voice_to_wav():
 
     # Create an MP3 file object to save the audio
     now = datetime.now()
-    wf = wave.open("audio/audio-"+str(now)+".wav", "wb")
+    timex=str(now)
+    timexx=timex.replace(':','_')
+    wf = wave.open("audio/audio-"+timexx+".wav", "wb")
     wf.setnchannels(1)
     wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
     wf.setframerate(44100)
@@ -88,9 +92,11 @@ def voice_to_wav():
             # Start recording audio
             start_time = time.time()
             now = datetime.now()
+            timex=str(now)
+            timexx=timex.replace(':','_')
 
             # Create a new wave file object
-            wf = wave.open("audio/audio-"+str(now)+".wav", "wb")
+            wf = wave.open("audio/audio-"+timexx+".wav", "wb")
             wf.setnchannels(1)
             wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
             wf.setframerate(44100)
@@ -114,7 +120,7 @@ def wav_to_txt():
 
 def subPro(name):
     result = Tmodel.transcribe(name)
-    time_str=name.replace("audio-","").replace(".wav","")
+    time_str=name.replace("audio-","").replace(".wav","").replace("_",":")
     txt=result["text"]
     with open(fileName, 'a+') as f:
         f.write(time_str+"|"+txt)
@@ -130,10 +136,10 @@ function_thread2 = threading.Thread(target=wav_to_txt)
 def start_function():
     global running_flag, function_thread,function_thread2
     if not running_flag:
-        os.remove('audio-main.wav')
+        #os.remove('audio-main.wav')
         file_names = os.listdir("audio")
         for name in file_names:
-            os.remove(name)
+            os.remove('audio/'+name)
         f = open(fileName, 'r+')
         f.truncate(0)
         running_flag = True
@@ -158,14 +164,14 @@ def stop_function():
 @cross_origin()
 def proc():
     """proccess audio file"""
-
+    refStatus = db.reference("/status")
     with open(fileName, 'rt') as file:
         lines=file.readlines()
         refStatus.set(10)
     if len(lines) > 2:    
 
         ref = db.reference("/alldata/lecture1/")
-        refStatus = db.reference("/status")
+        
 
         trans = Tmodel.transcribe('audio-main.wav')
         document= trans["text"]
@@ -219,17 +225,16 @@ def proc():
                 "Passage":x,
                 "QNA":data
             })
-            refStatus.set(100)
+        refStatus.set(100)
 
-            print("SUCCESS")
-            refStatus.set(0)
-
-            st=True
+        print("SUCCESS")
+        refStatus.set(0)
+        st=True
     else:
-            refStatus.set(100)
-            st=False
-            print("FAILED")
-            refStatus.set(0)
+        refStatus.set(100)
+        st=False
+        print("FAILED")
+        refStatus.set(0)
 
     return jsonify({"status":st})
 
@@ -289,8 +294,13 @@ def dash():
             stList=[]
             for key2, value2 in value.items():
                 dt = datetime.strptime(value2['time'], "%a, %d %b %Y %H:%M:%S %Z")
-                if youngust < dt < oldest:
-                    #print(youngust,dt,oldest)
+                gmt_timezone = pytz.timezone('GMT')
+                gmt_datetime = gmt_timezone.localize(dt)
+                local_timezone = pytz.timezone('Asia/Colombo')  # Change to your local timezone
+                local_datetime = gmt_datetime.astimezone(local_timezone)
+                local_datetime = local_datetime.replace(tzinfo=None)
+                if youngust < local_datetime < oldest:
+                    print(local_datetime,value2['data'],"passage:"+str(key))
                     stList.append(value2['data'])
             if len(stList) > 0:
                 presntage=(sum(stList)/len(stList))*100      
@@ -301,8 +311,9 @@ def dash():
         passageViseDict[key]=stViseDict
 
     refStatus.set(100)    
-    refStatus.set(0) 
-    return jsonify(passageViseDict)          
+    refStatus.set(0)
+    print(passageViseDict)     
+    return jsonify(passageViseDict)     
     
 if __name__ == '__main__':
     app.run(host="0.0.0.0", debug=True, port=8000)     
