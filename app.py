@@ -165,17 +165,34 @@ def stop_function():
 def proc():
     """proccess audio file"""
     refStatus = db.reference("/status")
+    flag=True
+    n_=0
+    while flag:
+        file_names = os.listdir("audio")
+        if len(file_names) > 0:
+            full_path = ["audio/{0}".format(x) for x in file_names]  
+            oldest_file = min(full_path, key=os.path.getctime)  
+            n_=n_+1
+            refStatus.set(n_)  
+            subPro(oldest_file)
+        else:
+            flag=False
+            break
+
     with open(fileName, 'rt') as file:
         lines=file.readlines()
-        refStatus.set(10)
+        refStatus.set(30)
     if len(lines) > 2:    
 
         ref = db.reference("/alldata/lecture1/")
-        
 
-        trans = Tmodel.transcribe('audio-main.wav')
-        document= trans["text"]
-        refStatus.set(20)
+        textlist=[]
+        for x in lines:
+            texts=x.split("|")[1]
+            textlist.append(texts)
+
+        document= "".join(textlist)
+        refStatus.set(35)
 
         # separate the text into sentences
         sentences = tokenizer.tokenize(document)
@@ -269,6 +286,7 @@ def dash():
 
     date_format = '%Y-%m-%d %H:%M:%S.%f'
     refStatus.set(30)
+    print(passages_for_text)
 
     grouped_dict = {}
     for key, value in passages_for_text.items():
@@ -282,13 +300,13 @@ def dash():
             grouped_dict[value].append(date_obj.replace(microsecond=0))
 
     refStatus.set(60)        
-
+    # print(grouped_dict)
     passageViseDict={}
     for key, value in grouped_dict.items():
-        print("passage:"+str(key))
+        # print("passage:"+str(key))
         youngust = min(value)
         oldest= max(value)
-        print(youngust,oldest)
+        # print(youngust,oldest)
         stViseDict={}
         for keyv, value in attention.items():
             stList=[]
@@ -300,7 +318,7 @@ def dash():
                 local_datetime = gmt_datetime.astimezone(local_timezone)
                 local_datetime = local_datetime.replace(tzinfo=None)
                 if youngust < local_datetime < oldest:
-                    print(local_datetime,value2['data'],"passage:"+str(key))
+                    # print(local_datetime,value2['data'],"passage:"+str(key))
                     stList.append(value2['data'])
             if len(stList) > 0:
                 presntage=(sum(stList)/len(stList))*100      
@@ -312,7 +330,7 @@ def dash():
 
     refStatus.set(100)    
     refStatus.set(0)
-    print(passageViseDict)     
+    # print(passageViseDict)     
     return jsonify(passageViseDict)     
     
 if __name__ == '__main__':
